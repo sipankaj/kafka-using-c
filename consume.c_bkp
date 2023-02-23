@@ -1,0 +1,121 @@
+#include <librdkafka/rdkafka.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int create_topic(rd_kafka_t *rk, const char *topic_name, int partition, int replication_factor) {
+    rd_kafka_AdminOptions_t *admin_options;
+    rd_kafka_resp_err_t err;
+    char errstr[512];
+
+    admin_options = rd_kafka_AdminOptions_new(rk, RD_KAFKA_ADMIN_OP_CREATETOPICS);
+
+    if (admin_options == NULL) {
+        fprintf(stderr, "Failed to create admin options\n");
+        return 1;
+    }
+
+    err = rd_kafka_AdminOptions_set_request_timeout(admin_options, 5000, errstr, sizeof(errstr));
+    if (err != RD_KAFKA_RESP_ERR_NO_ERROR) {
+        fprintf(stderr, "Failed to set request timeout: %s\n", rd_kafka_err2str(err));
+        rd_kafka_AdminOptions_destroy(admin_options);
+        return 1;
+    }
+
+    rd_kafka_NewTopic_t *new_topic = rd_kafka_NewTopic_new(topic_name, partition, replication_factor, errstr, sizeof(errstr));
+    if (new_topic == NULL) {
+        fprintf(stderr, "Failed to create new topic object: %s\n", errstr);
+        rd_kafka_AdminOptions_destroy(admin_options);
+        return 1;
+    }
+
+    err = rd_kafka_CreateTopics(rk, &new_topic, 1, admin_options, 5000);
+    if (err != RD_KAFKA_RESP_ERR_NO_ERROR) {
+        fprintf(stderr, "Failed to create topic '%s': %s\n", topic_name, rd_kafka_err2str(err));
+        rd_kafka_AdminOptions_destroy(admin_options);
+        rd_kafka_NewTopic_destroy(new_topic);
+        return 1;
+    }
+
+    rd_kafka_AdminOptions_destroy(admin_options);
+    rd_kafka_NewTopic_destroy(new_topic);
+
+    return 0;
+}
+
+int main(int argc, char **argv) {
+    rd_kafka_t *rk;         /* Kafka consumer instance handle */
+    rd_kafka_conf_t *conf;  /* Temporary configuration object */
+    char *brokers;          /* Kafka broker(s) */
+    char *topic;            /* Kafka topic to consume messages from */
+    char errstr[512];       /* librdkafka API error reporting buffer */
+    rd_kafka_topic_t *rkt;  /* Kafka topic object */
+    rd_kafka_message_t *rkmessage; /* Message object */
+
+    /* Check that we have correct number of arguments */
+    if (argc != 3) {
+        fprintf(stderr, "Usage: %s <brokers> <topic>\n", argv[0]);
+        return 1;
+    }
+
+    brokers = argv[1];
+    topic = argv[2];
+
+    /* Create Kafka client configuration properties */
+    conf = rd_kafka_conf_new();
+
+    /* Set bootstrap broker(s) */
+    if (rd_kafka_conf_set(conf, "bootstrap.servers", brokers, errstr, sizeof(errstr)) != RD_KAFKA_CONF_OK) {
+        fprintf(stderr, "%s\n", errstr);
+        return 1;
+    }
+
+    /* Create Kafka consumer instance */
+    rk = rd_kafka_new(RD_KAFKA_CONSUMER, conf, errstr, sizeof(errstr));
+    if (rk == NULL) {
+        fprintf(stderr, "Failed to create new Kafka consumer: %s\n", errstr);
+        return 1;
+    }
+
+
+
+    /* Create Kafka topic object */
+    rkt = rd_kafka_topic_new(rk, topic, NULL);
+   if (rkt == NULL) {
+        fprintf(stderr, "Failed to create new Kafka topic object\n");
+        rd_kafka_destroy(rk);
+        return 1;
+    }
+
+    /* Start consuming messages */
+    if (rd_kafka_consume_start(rkt, 0, RD_KAFKA_OFFSET_END) == -1) {
+        fprintf(stderr, "Failed to start consuming messages: %s\n", rd_kafka_err2str(rd_kafka_last_error()));
+        rd_kafka_topic_destroy(rkt);
+        rd_kafka_destroy(rk);
+        return 1;
+    }
+
+    while (1) {
+        /* Wait for a message */
+        rkmessage = rd_kafka_consume(rkt, 0, 1000);
+        if (rkmessage == NULL) {
+            continue;
+        }
+
+        /* Print the message payload */
+        printf("Message received: %.*s\n", (int)rkmessage->len, (char *)rkmessage->payload);
+
+        /* Free the message object */
+        rd_kafka_message_destroy(rkmessage);
+    }
+
+    /* Stop consuming messages */
+    rd_kafka_consume_stop(rkt, 0);
+
+    /* Destroy Kafka topic object */
+    rd_kafka_topic_destroy(rkt);
+
+    /* Destroy Kafka producer instance */
+    rd_kafka_destroy(rk);
+
+    return 0;
+}
