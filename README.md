@@ -26,11 +26,13 @@ This will compile the `publish.c` and `consume.c` files and link them with the `
 ## Running the Producer
 
 To run the producer, use the following command:
+
 ./publish <broker_list> <topic_name> <message>
 
 Replace `<broker_list>` with a comma-separated list of Kafka brokers, and `<topic_name>` with the name of the topic you want to produce events to.
 
 For example:
+
 ./publish localhost:9092 test_topic hello
 
 This will create a Kafka producer that connects to the brokers specified in `<broker_list>` and produces messages to the `test_topic` topic.
